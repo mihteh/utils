@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mtfelian/validation"
 	"golang.org/x/text/encoding/charmap"
@@ -96,7 +98,7 @@ func Round(val float64, roundOn float64, places int) float64 {
 func FormatPhone(phone string) (string, error) {
 	// форматируем строку с телефоном
 	res := phone
-	reg, err := regexp.Compile(`[\(\).,;#*А-яA-z\s+-]*`)
+	reg, err := regexp.Compile(`[().,;#*А-яA-z\s+-]*`)
 	if err != nil {
 		return phone, err
 	}
@@ -108,7 +110,7 @@ func FormatPhone(phone string) (string, error) {
 		return phone, errors.New("Слишком короткий номер телефона")
 	}
 	if res[:1] == "8" {
-		res = "7" + res[1:len(res)]
+		res = "7" + res[1:]
 	}
 	return res, nil
 }
@@ -369,7 +371,6 @@ func CountPages(elementsTotal uint, pageSize uint) uint {
 	return countPages
 }
 
-
 // StringSlice это срез строк
 // реализует интерфейс Stringer
 type StringSlice []string
@@ -384,25 +385,29 @@ func (ss StringSlice) String() string {
 	return result
 }
 
-// IsNil возвращает true если объект является nil или содержит значение, эквивалентное нулевому
-// иначе возвращает false
+// IsNil returns true if obj is nil or contains empty value, otherwise returns false
 func IsNil(obj interface{}) bool {
 	return !(validation.Required{}).IsSatisfied(obj)
 }
 
-// PString возвращает указатель на строку s или nil, если строка пустая
+// PString returns a pointer to string s
 func PString(s string) *string {
 	return &s
 }
 
-// PUint возвращает указатель на uint i
+// PUint returns a pointer to uint value i
 func PUint(i uint) *uint {
 	return &i
 }
 
-// PInt возвращает указатель на int i
+// PInt returns a pointer to int value i
 func PInt(i int) *int {
 	return &i
+}
+
+// PBool returns a pointer to bool value b
+func PBool(b bool) *bool {
+	return &b
 }
 
 // GetIPAddress пытается получить IP адрес из заголовков HTTP
@@ -413,7 +418,9 @@ func GetIPAddress(request *http.Request) string {
 		`(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.` +
 		`(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`)
 
-	ipKeys := []string{"HTTP_CLIENT_IP",
+	ipKeys := []string{
+		"X-Real-Ip",
+		"HTTP_CLIENT_IP",
 		"HTTP_X_FORWARDED_FOR",
 		"HTTP_X_FORWARDED",
 		"HTTP_X_CLUSTER_CLIENT_IP",
@@ -451,12 +458,12 @@ func CallerFuncName() (string, error) {
 		return "", errors.New("Error after runtime.Callers(), n == 0")
 	}
 
-	fun := runtime.FuncForPC(fpcs[0] - 1)
-	if fun == nil {
+	f := runtime.FuncForPC(fpcs[0] - 1)
+	if f == nil {
 		return "", errors.New("Error after runtime.FuncForPC(): fun == nil")
 	}
 
-	return fun.Name(), nil
+	return f.Name(), nil
 }
 
 // CallerFuncNameString returns a string from
@@ -466,6 +473,24 @@ func CallerFuncNameString() string {
 		return ""
 	}
 	return funcName
+}
+
+// GetFunctionName returns a name of function
+func GetFunctionName(function interface{}) (string, error) {
+	value := reflect.ValueOf(function)
+	kind := value.Kind()
+	if kind != reflect.Func {
+		return "", fmt.Errorf("Kind is not a func: %v", kind)
+	}
+
+	f := runtime.FuncForPC(value.Pointer())
+	if f == nil {
+		return "", fmt.Errorf("Pointer to func is nil")
+	}
+
+	fName := regexp.MustCompile(`^.*[/\\]`).ReplaceAllString(f.Name(), "")
+
+	return fName, nil
 }
 
 // RemoveDuplicates удаляет повторные значения из среза s
@@ -495,6 +520,30 @@ func SortUints(a []uint) { sort.Sort(UintSlice(a)) }
 
 // UintsAreSorted tests whether a slice of uints is sorted in increasing order.
 func UintsAreSorted(a []uint) bool { return sort.IsSorted(UintSlice(a)) }
+
+// NewIndicesSlice creates new slice for sorting with indices remembering
+func NewIndicesSlice(n sort.Interface) *IndicesSlice {
+	s := &IndicesSlice{Interface: n, Indices: make([]int, n.Len())}
+	for i := range s.Indices {
+		s.Indices[i] = i
+	}
+	return s
+}
+
+// NewIndicesUintSlice creates new slice of uint type for sorting with indices remembering
+func NewIndicesUintSlice(n ...uint) *IndicesSlice { return NewIndicesSlice(UintSlice(n)) }
+
+// IndicesSlice is a type for sorting with indexes remembering
+type IndicesSlice struct {
+	sort.Interface
+	Indices []int
+}
+
+// Swap reimplements Swap() for sort.Interface
+func (s IndicesSlice) Swap(i, j int) {
+	s.Interface.Swap(i, j)
+	s.Indices[i], s.Indices[j] = s.Indices[j], s.Indices[i]
+}
 
 // FileUploadRequest это параметры для POST запроса с файлом
 type FileUploadRequest struct {
@@ -551,39 +600,142 @@ func SliceContains(needle interface{}, haystack interface{}) bool {
 
 	return false
 }
-/*
-	Возвращает строку месяца
-	на русском языке в родительном падеже.
-	Параметры:
-	m - номер месяца (1-12)
-*/
-func MonthToRussianStringInCase2(m int) string {
-	switch m {
-	case 1:
-		return "января"
-	case 2:
-		return "февраля"
-	case 3:
-		return "марта"
-	case 4:
-		return "апреля"
-	case 5:
-		return "мая"
-	case 6:
-		return "июня"
-	case 7:
-		return "июля"
-	case 8:
-		return "августа"
-	case 9:
-		return "сентября"
-	case 10:
-		return "октября"
-	case 11:
-		return "ноября"
-	case 12:
-		return "декабря"
-	}
-	return ""
 
+// CircularAdd возвращает следующий элемент кольцевой целочисленной арифметики начиная от a,
+// макс. элемент равен max
+func CircularAdd(a int, max int) int {
+	if a >= max {
+		return 0
+	}
+	return a + 1
+}
+
+// StringToUintSlice converts a string values separated by sep to slice of uint elements
+// It returns an error if any element can't be converted to uint
+// If a converted element is less than min, it will not be added
+// empty elements are ignored
+func StringToUintSlice(s string, sep string, min uint) ([]uint, error) {
+	output := []uint{}
+	for _, stringValue := range strings.Split(s, sep) {
+		stringValue = strings.TrimSpace(stringValue)
+		if stringValue == "" {
+			continue
+		}
+		numericElement, err := StringToUint(stringValue)
+		if err != nil {
+			return []uint{}, fmt.Errorf("Error %v. Invalid value: '%s'", err, stringValue)
+		}
+		if numericElement < min {
+			continue
+		}
+		output = append(output, numericElement)
+	}
+	return output, nil
+}
+
+// StringToStringSlice converts a string values separated by sep to slice of string elements
+// empty elements are ignored
+func StringToStringSlice(s, sep string) []string {
+	output := []string{}
+	stringElements := strings.Split(s, sep)
+	for _, element := range stringElements {
+		element = strings.TrimSpace(element)
+		if element != "" {
+			output = append(output, element)
+		}
+	}
+	return output
+}
+
+// ToLowerFirstRune returns string s with first rune converted to it's lowercase form
+func ToLowerFirstRune(s string) string {
+	if utf8.RuneCountInString(s) == 0 {
+		return s
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
+}
+
+// Try tries n times to call an actionFunc() until conditionFunc() returns true
+// actionFunc is a func returning error
+// n is a number of times to try to call actionFunc()
+// delay is a delay between calls actionFunc()
+// conditionFunc is a func accepting error, if it returns true, Try will try again
+// Try returns a number of attempts
+func Try(actionFunc func() error, n int, delay time.Duration, conditionFunc func(e error) bool) (int, error) {
+	var err error
+	i := 0
+	for i < n {
+		i++
+		err = actionFunc()
+		if conditionFunc(err) {
+			time.Sleep(delay)
+			continue
+		}
+		break
+	}
+	return i, err
+}
+
+// MustSelfPath returns path to this application executable, it panic at error
+func MustSelfPath() string {
+	selfPath, err := GetSelfPath()
+	if err != nil {
+		panic(err)
+	}
+	return selfPath
+}
+
+// SubstringBetween returns a substring between substrs l and r from source string s
+func SubstringBetween(s, l, r string) string {
+	i := strings.Index(s, l)
+	if i == -1 {
+		return ""
+	}
+	i += len(l)
+	j := strings.Index(s[i:], r)
+	if j < 0 {
+		return ""
+	}
+	return s[i : j+i]
+}
+
+// AppendFile with given path
+func AppendFile(path string) (*os.File, error) {
+	if !FileExists(path) { // create it
+		f, err := os.Create(path)
+		if err != nil {
+			return f, err
+		}
+		if _, err := f.Write([]byte{0}); err != nil {
+			return f, err
+		}
+		if err := f.Close(); err != nil {
+			return f, err
+		}
+	}
+
+	return os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+}
+
+// AddBakExtension adds/changes a bakExt extension with numeric index extension to fileName
+func AddBakExtension(fileName, bakExt string) string {
+	const defaultBakExt = "bak"
+	if bakExt == "" {
+		bakExt = defaultBakExt
+	}
+	ext, re := filepath.Ext(fileName), regexp.MustCompile(fmt.Sprintf(`^\.%s(\d*)$`, bakExt))
+	if !re.MatchString(ext) {
+		return fmt.Sprintf("%s.%s1", fileName, bakExt)
+	}
+	submatch := re.FindStringSubmatch(ext)
+	if len(submatch) != 2 {
+		panic("something wrong, len of submatch is not 2")
+	}
+	i, err := strconv.Atoi(submatch[1])
+	if err != nil {
+		i = 0 // means no number
+	}
+	return strings.TrimSuffix(fileName, ext) + fmt.Sprintf(".%s%d", bakExt, i+1)
 }
