@@ -40,7 +40,8 @@ func NewGostSignerEncryptor(params SSLParams) encrypt.SignerEncryptor {
 func (s gostSSL) SignDER(fileIn string, fileOut string) error {
 	// Пример командной строки:
 	// /gost-ssl/bin/openssl smime -sign -nodetach -signer certs/kakunin/kakunin.cer -inkey private.pem \
-	// -engine gost -gost89 -binary -noattr -outform DER -in test.xml -out test.xml.sgn
+	// -engine gost -gost2001 -binary -noattr -outform DER -in test.xml -out test.xml.sgn
+	fmt.Println("sign")
 	p := s.getParams()
 	cmdParams := []string{
 		"smime",
@@ -52,7 +53,7 @@ func (s gostSSL) SignDER(fileIn string, fileOut string) error {
 		p.OurPrivateKey,
 		"-engine",
 		"gost",
-		"-gost89",
+		"-gost2001",
 		"-binary",
 		"-noattr",
 		"-outform",
@@ -81,12 +82,13 @@ func (s gostSSL) Encrypt(fileIn string, fileOut string) error {
 	// /gost-ssl/bin/openssl smime -encrypt -engine gost -gost89 -in test.xml.sgn -binary -outform der
 	// -out test.xml.sgn.enc certs/equifax1617/Боевой\ сервер/Prod_Equifax_2016-2017.cer
 	p := s.getParams()
+	fmt.Println("encrypt")
 	cmdParams := []string{
 		"smime",
 		"-encrypt",
 		"-engine",
 		"gost",
-		"-gost89",
+		"-gost2001",
 		"-in",
 		fileIn,
 		"-binary",
